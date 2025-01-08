@@ -48,24 +48,39 @@ class LinearRegression:
         self.loss_history: List[float] = []
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> LinearRegression:
-        """
-        Обучение модели линейной регрессии, подбор весов для наборов данных x и y.
+            """
+            Обучение модели линейной регрессии, подбор весов для наборов данных x и y.
 
-        Parameters
-        ----------
-        x : np.ndarray
-            Массив признаков.
-        y : np.ndarray
-            Массив целевых переменных.
+            Parameters
+            ----------
+            x : np.ndarray
+                Массив признаков.
+            y : np.ndarray
+                Массив целевых переменных.
 
-        Returns
-        -------
-        self : LinearRegression
-            Возвращает экземпляр класса с обученными весами.
+            Returns
+            -------
+            self : LinearRegression
+                Возвращает экземпляр класса с обученными весами.
 
-        """
-        # TODO: реализовать подбор весов для x и y
-        raise NotImplementedError('Функция fit класса LinearRegression не реализована')
+            """
+            for iteration in range(self.max_iter):
+                # Выполнение шага градиентного спуска
+                weight_diff = self.descent.step(x, y)
+
+                # Вычисление значения функции потерь и сохранение в истории
+                loss = self.descent.calc_loss(x, y)
+                self.loss_history.append(loss)
+
+                # Проверка критерия остановки
+                if np.linalg.norm(weight_diff) ** 2 <= self.tolerance:
+                    break
+
+            # Добавление последнего значения функции потерь, если цикл завершился досрочно
+            if len(self.loss_history) == self.max_iter:
+                self.loss_history.append(self.descent.calc_loss(x, y))
+
+            return self
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """

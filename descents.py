@@ -199,7 +199,22 @@ class BaseDescent:
         float
             Значение функции потерь.
         """
-        raise NotImplementedError('BaseDescent calc_loss function not implemented')
+        predictions = x @ self.w
+        if self.loss_function == LossFunction.MSE:
+            return np.mean((predictions - y) ** 2)
+        elif self.loss_function == LossFunction.MAE:
+            return np.mean(np.abs(predictions - y))
+        elif self.loss_function == LossFunction.LogCosh:
+            return np.mean(np.log(np.cosh(predictions - y)))
+        elif self.loss_function == LossFunction.Huber:
+            delta = 1.0  # Порог Хьюбера
+            residual = predictions - y
+            is_small_error = np.abs(residual) <= delta
+            squared_loss = 0.5 * residual ** 2
+            linear_loss = delta * (np.abs(residual) - 0.5 * delta)
+            return np.mean(np.where(is_small_error, squared_loss, linear_loss))
+        else:
+            raise ValueError("Unknown loss function")
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
@@ -215,7 +230,7 @@ class BaseDescent:
         np.ndarray
             Прогнозируемые значения.
         """
-        raise NotImplementedError('BaseDescent predict function not implemented')
+        return x @ self.w
 
 
 class VanillaGradientDescent(BaseDescent):
@@ -244,7 +259,9 @@ class VanillaGradientDescent(BaseDescent):
         np.ndarray
             Разность весов (w_{k + 1} - w_k).
         """
-        raise NotImplementedError('VanillaGradientDescent update_weights function not implemented')
+        previous_weights = self.w.copy()
+        self.w -= self.lr.lambda_ * gradient
+        return self.w - previous_weights
 
     def calc_gradient(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
         """
@@ -262,7 +279,10 @@ class VanillaGradientDescent(BaseDescent):
         np.ndarray
             Градиент функции потерь по весам.
         """
-        raise NotImplementedError('VanillaGradientDescent calc_gradient function not implemented')
+        predictions = x @ self.w  # Вычисление прогнозов
+        errors = predictions - y  # Ошибки прогнозов
+        gradient = (x.T @ errors) / len(y)  # Градиент функции потерь
+        return gradient
 
 
 class StochasticDescent(VanillaGradientDescent):
@@ -307,7 +327,16 @@ class StochasticDescent(VanillaGradientDescent):
         np.ndarray
             Градиент функции потерь по весам, вычисленный по мини-пакету.
         """
-        raise NotImplementedError('StochasticDescent calc_gradient function not implemented')
+        # Случайный выбор индексов для мини-пакета
+        indices = np.random.choice(len(y), self.batch_size, replace=False)
+        x_batch = x[indices]
+        y_batch = y[indices]
+
+        # Вычисление градиента для мини-пакета
+        predictions = x_batch @ self.w  # Прогнозы для мини-пакета
+        errors = predictions - y_batch  # Ошибки
+        gradient = (x_batch.T @ errors) / self.batch_size  # Градиент функции потерь
+        return gradient
 
 
 class MomentumDescent(VanillaGradientDescent):
@@ -355,21 +384,24 @@ class MomentumDescent(VanillaGradientDescent):
         self.h: np.ndarray = np.zeros(dimension)
 
     def update_weights(self, gradient: np.ndarray) -> np.ndarray:
-        """
-        Обновление весов с использованием момента.
+            """
+            Обновление весов с использованием момента.
 
-        Parameters
-        ----------
-        gradient : np.ndarray
-            Градиент функции потерь.
+            Parameters
+            ----------
+            gradient : np.ndarray
+                Градиент функции потерь.
 
-        Returns
-        -------
-        np.ndarray
-            Разность весов (w_{k + 1} - w_k).
-        """
-        # TODO: implement updating weights function
-        raise NotImplementedError('MomentumDescent update_weights function not implemented')
+            Returns
+            -------
+            np.ndarray
+                Разность весов (w_{k + 1} - w_k).
+            """
+            previous_weights = self.w.copy()
+            self.h = self.alpha * self.h + self.lr.lambda_ * gradient
+            self.w -= self.h
+            return self.w - previous_weights
+
 
 
 class Adam(VanillaGradientDescent):
@@ -444,7 +476,20 @@ class Adam(VanillaGradientDescent):
         np.ndarray
             Разность весов (w_{k + 1} - w_k).
         """
-        raise NotImplementedError('Adagrad update_weights function not implemented')
+        self.iteration += 1
+
+        # Обновление первых моментов
+        self.m = self.beta_1 * self.m + (1 - self.beta_1) * gradient
+        m_hat = self.m / (1 - self.beta_1 ** self.iteration)
+
+        # Обновление вторых моментов
+        self.v = self.beta_2 * self.v + (1 - self.beta_2) * (gradient ** 2)
+        v_hat = self.v / (1 - self.beta_2 ** self.iteration)
+
+        # Обновление весов
+        previous_weights = self.w.copy()
+        self.w -= self.lr.lambda_ * m_hat / (np.sqrt(v_hat) + self.eps)
+        return self.w - previous_weights
 
 
 class BaseDescentReg(BaseDescent):
@@ -505,11 +550,80 @@ class VanillaGradientDescentReg(BaseDescentReg, VanillaGradientDescent):
     Класс полного градиентного спуска с регуляризацией.
     """
 
+    def calc_gradient(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """
+        Вычисление градиента функции потерь с учетом L2 регуляризации по весам.
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Массив признаков.
+        y : np.ndarray
+            Массив целевых переменных.
+
+        Returns
+        -------
+        np.ndarray
+            Градиент функции потерь с учетом L2 регуляризации по весам.
+        """
+        return super().calc_gradient(x, y)
+
+    def update_weights(self, gradient: np.ndarray) -> np.ndarray:
+        """
+        Обновление весов с учетом L2 регуляризации.
+
+        Parameters
+        ----------
+        gradient : np.ndarray
+            Градиент функции потерь.
+
+        Returns
+        -------
+        np.ndarray
+            Разность весов (w_{k + 1} - w_k).
+        """
+        return super().update_weights(gradient)
+
 
 class StochasticDescentReg(BaseDescentReg, StochasticDescent):
     """
     Класс стохастического градиентного спуска с регуляризацией.
     """
+
+    def calc_gradient(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """
+        Вычисление градиента функции потерь с учетом L2 регуляризации по мини-пакетам.
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Массив признаков.
+        y : np.ndarray
+            Массив целевых переменных.
+
+        Returns
+        -------
+        np.ndarray
+            Градиент функции потерь с учетом L2 регуляризации по весам.
+        """
+        return super().calc_gradient(x, y)
+
+    def update_weights(self, gradient: np.ndarray) -> np.ndarray:
+        """
+        Обновление весов с учетом L2 регуляризации.
+
+        Parameters
+        ----------
+        gradient : np.ndarray
+            Градиент функции потерь.
+
+        Returns
+        -------
+        np.ndarray
+            Разность весов (w_{k + 1} - w_k).
+        """
+        return super().update_weights(gradient)
+
 
 
 class MomentumDescentReg(BaseDescentReg, MomentumDescent):
@@ -517,11 +631,79 @@ class MomentumDescentReg(BaseDescentReg, MomentumDescent):
     Класс градиентного спуска с моментом и регуляризацией.
     """
 
+    def calc_gradient(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """
+        Вычисление градиента функции потерь с учетом L2 регуляризации.
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Массив признаков.
+        y : np.ndarray
+            Массив целевых переменных.
+
+        Returns
+        -------
+        np.ndarray
+            Градиент функции потерь с учетом L2 регуляризации по весам.
+        """
+        return super().calc_gradient(x, y)
+
+    def update_weights(self, gradient: np.ndarray) -> np.ndarray:
+        """
+        Обновление весов с использованием момента и L2 регуляризации.
+
+        Parameters
+        ----------
+        gradient : np.ndarray
+            Градиент функции потерь.
+
+        Returns
+        -------
+        np.ndarray
+            Разность весов (w_{k + 1} - w_k).
+        """
+        return super().update_weights(gradient)
 
 class AdamReg(BaseDescentReg, Adam):
     """
     Класс адаптивного градиентного алгоритма с регуляризацией (AdamReg).
     """
+
+    def calc_gradient(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """
+        Вычисление градиента функции потерь с учетом L2 регуляризации.
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Массив признаков.
+        y : np.ndarray
+            Массив целевых переменных.
+
+        Returns
+        -------
+        np.ndarray
+            Градиент функции потерь с учетом L2 регуляризации по весам.
+        """
+        return super().calc_gradient(x, y)
+
+    def update_weights(self, gradient: np.ndarray) -> np.ndarray:
+        """
+        Обновление весов с использованием алгоритма Adam и L2 регуляризации.
+
+        Parameters
+        ----------
+        gradient : np.ndarray
+            Градиент функции потерь.
+
+        Returns
+        -------
+        np.ndarray
+            Разность весов (w_{k + 1} - w_k).
+        """
+        return super().update_weights(gradient)
+
 
 
 def get_descent(descent_config: dict) -> BaseDescent:
